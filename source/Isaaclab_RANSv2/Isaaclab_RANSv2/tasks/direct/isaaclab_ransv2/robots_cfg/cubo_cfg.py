@@ -99,13 +99,12 @@ class CuboRobotCfg(RobotCoreCfg):
     state_space: int = 0
     gen_space: int = 0  # TODO: Add the generative space from the randomization
 
-    @property
-    def action_space(self) -> int:
-        if self.direct_thruster_control:
-            return self.num_thrusters + (1 if self.has_reaction_wheel else 0)
-        return 3 + (1 if self.has_reaction_wheel else 0)
+    action_space: int = 0
+    observation_space: int = 0
 
-    @property
-    def observation_space(self) -> int:
-        """Robot observation dim (same as action dim: last action as obs)."""
-        return self.action_space
+    def __post_init__(self):
+        if self.direct_thruster_control:
+            self.action_space = self.num_thrusters + (1 if self.has_reaction_wheel else 0)
+        else:
+            self.action_space = 3 + (1 if self.has_reaction_wheel else 0)
+        self.observation_space = self.action_space

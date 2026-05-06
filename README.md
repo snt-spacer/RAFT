@@ -1,5 +1,53 @@
 # Template for Isaac Lab Projects
 
+Failure of thrusters
+RMA
+Phase 1
+```
+python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-v0 --num_envs 1024 --max_failures 4 --eval_episodes_per_env 2 --headless
+```
+
+Phase 2 (loads latest Phase-1 checkpoint)
+```
+python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-v0  --num_envs 1024 --max_failures 4  --phase2_checkpoint logs/rsl_rl/AutoEnvGen_PPO_RMA/<run>/phase2/adapt_final.pt --history_length 50 --backbone conv headless
+```
+
+Stricter looser tolerances
+```
+python scripts/rsl_rl/eval_rma.py ... --pos_tol 0.05 --heading_tol 0.02 --success_steps 30
+```
+
+Three-axis evaluation:
+
+Axis 1 — failure count k
+Pin the per-env failure count to a fixed k and sweep k = 0, 1, ..., max_failures. Every env in the batch gets exactly k failed thrusters (uniformly random selection of which ones), held for the whole episode. The new task.force_failure_count(k) knob switches sampling to fixed_cap and overrides the curriculum, so each k pass is clean and comparable.
+
+Axis 2 — Phase 1 vs Phase 2
+
+Phase 1 mode (default): policy reads the true mask via mu. Upper bound — measures whether the privileged-info policy can compensate at all.
+Phase 2 mode (--phase2_checkpoint <path>): the actor's privileged latent z is replaced with phi(history) from a trained adaptation module. Mirrors deployment. Per-env RMAHistoryBuffer is fed (policy_obs, action) and reset on episode termination, exactly as during Phase-2 training. The gap between Phase 1 and Phase 2 success rates tells you what the adaptation module is costing you.
+Axis 3 — success criterion
+A success is one episode where, at some point, the agent stays within both --pos_tol (default 2 cm) and --heading_tol (default 0.01 rad) for at least --success_steps consecutive control steps (default 50, i.e. ~5 s at 10 Hz). This is stricter than "ever touched the goal" and matches the task's existing reset_after_n_steps_in_tolerance notion.
+
+
+# Phase 1: train PPO + privileged encoder on the easier position task
+python scripts/rsl_rl/train.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 4096 --max_iterations 5000 --headless
+
+# Phase 2: train the adaptation module from history
+python scripts/rsl_rl/train_rma_phase2.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --num_iterations 2000 --history_length 50 --backbone conv --headless --phase1_checkpoint
+
+# Eval Phase 1 (true mask via mu)
+python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --max_failures 4 --pos_tol 0.02 --success_steps 50
+
+# Eval Phase 2 (predicted latent from history)
+python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --max_failures 4 --phase2_checkpoint logs/rsl_rl/AutoEnvGen_PPO_RMA_Position/<run>/phase2/adapt_final.pt --history_length 50 --backbone conv
+
+
+# Eval Thruster Failure
+```
+python scripts/rsl_rl/eval_gt_failures.py --task Isaaclab-RANSv2-GroundTruth-Position-v0 env.robot_name=CuboThrusterFailure env.task_name=GoToPositionRMA --num_envs 512 --max_failures 4 --eval_episodes_per_env 5 --pos_tol 0.05 --success_steps 50 --headless --checkpoint 
+```
+
 ```
 docker/container.py start
 docker/container.py enter

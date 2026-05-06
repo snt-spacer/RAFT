@@ -16,8 +16,10 @@ from .go_through_positions import GoThroughPositionsTask  # noqa: F401, F403
 from .go_through_positions_6DoF import GoThroughPositions3DTask  # noqa: F401, F403
 from .go_to_pose import GoToPoseTask  # noqa: F401, F403
 from .go_to_pose_6DoF import GoToPose3DTask  # noqa: F401, F403
+from .go_to_pose_rma import GoToPoseRMATask  # noqa: F401, F403
 from .go_to_position import GoToPositionTask  # noqa: F401, F403
 from .go_to_position_6DoF import GoToPosition3DTask  # noqa: F401, F403
+from .go_to_position_rma import GoToPositionRMATask  # noqa: F401, F403
 from .go_to_position_with_obstacles import GoToPositionWithObstaclesTask  # noqa: F401, F403
 from .push_block import PushBlockTask  # noqa: F401, F403
 from .race_gates import RaceGatesTask  # noqa: F401, F403
@@ -34,8 +36,10 @@ TASK_FACTORY.register("GoThroughPositions", GoThroughPositionsTask)
 TASK_FACTORY.register("GoThroughPositions3D", GoThroughPositions3DTask)
 TASK_FACTORY.register("GoToPose", GoToPoseTask)
 TASK_FACTORY.register("GoToPose3D", GoToPose3DTask)
+TASK_FACTORY.register("GoToPoseRMA", GoToPoseRMATask)
 TASK_FACTORY.register("GoToPosition", GoToPositionTask)
 TASK_FACTORY.register("GoToPosition3D", GoToPosition3DTask)
+TASK_FACTORY.register("GoToPositionRMA", GoToPositionRMATask)
 TASK_FACTORY.register("PushBlock", PushBlockTask)
 TASK_FACTORY.register("RaceWaypoints", RaceWaypointsTask)
 TASK_FACTORY.register("RaceWayposes", RaceWayposesTask)

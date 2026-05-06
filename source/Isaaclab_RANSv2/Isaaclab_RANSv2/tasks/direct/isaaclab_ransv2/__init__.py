@@ -32,3 +32,46 @@ gym.register(
         "sb3_cfg_entry_point": f"{agents.__name__}:sb3_ppo_cfg.yaml",
     },
 )
+
+gym.register(
+    id="Isaaclab-RANSv2-RMA-v0",
+    entry_point=f"{environments.__name__}.rma_env:RMAEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.rma_env_cfg:RMAEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rma_cfg:PPORunnerCfg",
+        "rsl_rl_rma_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rma_cfg:PPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaaclab-RANSv2-RMA-Position-v0",
+    entry_point=f"{environments.__name__}.rma_env:RMAEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.rma_position_env_cfg:RMAPositionEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rma-position_cfg:PPORunnerCfg",
+        "rsl_rl_rma_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rma-position_cfg:PPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaaclab-RANSv2-GroundTruth-Position-v0",
+    entry_point=f"{environments.__name__}.ground_truth_env:GroundTruthEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.ground_truth_env_cfg:GroundTruthEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-ground-truth-position_cfg:PPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaaclab-RANSv2-History-Position-v0",
+    entry_point=f"{environments.__name__}.history_env:HistoryEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.history_env_cfg:HistoryEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-transformer_cfg:PPORunnerCfg",
+    },
+)
+

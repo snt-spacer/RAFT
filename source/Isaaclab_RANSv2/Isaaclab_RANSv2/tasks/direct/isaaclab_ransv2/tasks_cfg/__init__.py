@@ -15,8 +15,10 @@ from .go_through_positions_6DoF_cfg import GoThroughPositions3DCfg  # noqa: F401
 from .go_through_positions_cfg import GoThroughPositionsCfg  # noqa: F401, F403
 from .go_to_pose_6DoF_cfg import GoToPose3DCfg  # noqa: F401, F403
 from .go_to_pose_cfg import GoToPoseCfg  # noqa: F401, F403
+from .go_to_pose_rma_cfg import GoToPoseRMACfg  # noqa: F401, F403
 from .go_to_position_6DoF_cfg import GoToPosition3DCfg  # noqa: F401, F403
 from .go_to_position_cfg import GoToPositionCfg  # noqa: F401, F403
+from .go_to_position_rma_cfg import GoToPositionRMACfg  # noqa: F401, F403
 from .go_to_position_with_obstacles_cfg import GoToPositionWithObstaclesCfg
 from .push_block_cfg import PushBlockCfg  # noqa: F401, F403
 from .race_gates_cfg import RaceGatesCfg  # noqa: F401, F403
@@ -31,8 +33,10 @@ TASK_CFG_FACTORY.register("GoThroughPoses3D", GoThroughPoses3DCfg)
 TASK_CFG_FACTORY.register("GoThroughPositions", GoThroughPositionsCfg)
 TASK_CFG_FACTORY.register("GoToPose", GoToPoseCfg)
 TASK_CFG_FACTORY.register("GoToPose3D", GoToPose3DCfg)
+TASK_CFG_FACTORY.register("GoToPoseRMA", GoToPoseRMACfg)
 TASK_CFG_FACTORY.register("GoToPosition", GoToPositionCfg)
 TASK_CFG_FACTORY.register("GoToPosition3D", GoToPosition3DCfg)
+TASK_CFG_FACTORY.register("GoToPositionRMA", GoToPositionRMACfg)
 TASK_CFG_FACTORY.register("PushBlock", PushBlockCfg)
 TASK_CFG_FACTORY.register("RaceWaypoints", RaceWaypointsCfg)
 TASK_CFG_FACTORY.register("RaceWayposes", RaceWayposesCfg)
