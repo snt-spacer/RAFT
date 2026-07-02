@@ -20,6 +20,7 @@ from .go_to_pose_rma import GoToPoseRMATask  # noqa: F401, F403
 from .go_to_position import GoToPositionTask  # noqa: F401, F403
 from .go_to_position_6DoF import GoToPosition3DTask  # noqa: F401, F403
 from .go_to_position_rma import GoToPositionRMATask  # noqa: F401, F403
+from .go_to_position_observer import GoToPositionObserverTask  # noqa: F401, F403
 from .go_to_position_with_obstacles import GoToPositionWithObstaclesTask  # noqa: F401, F403
 from .push_block import PushBlockTask  # noqa: F401, F403
 from .race_gates import RaceGatesTask  # noqa: F401, F403
@@ -40,6 +41,10 @@ TASK_FACTORY.register("GoToPoseRMA", GoToPoseRMATask)
 TASK_FACTORY.register("GoToPosition", GoToPositionTask)
 TASK_FACTORY.register("GoToPosition3D", GoToPosition3DTask)
 TASK_FACTORY.register("GoToPositionRMA", GoToPositionRMATask)
+TASK_FACTORY.register("GoToPositionObserver", GoToPositionObserverTask)
+TASK_FACTORY.register("GoToPositionObserverDEG", GoToPositionObserverTask)
+TASK_FACTORY.register("GoToPositionObserverDEAD", GoToPositionObserverTask)
+TASK_FACTORY.register("GoToPositionObserverSTK", GoToPositionObserverTask)
 TASK_FACTORY.register("PushBlock", PushBlockTask)
 TASK_FACTORY.register("RaceWaypoints", RaceWaypointsTask)
 TASK_FACTORY.register("RaceWayposes", RaceWayposesTask)

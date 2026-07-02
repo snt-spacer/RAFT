@@ -5,13 +5,17 @@
 
 """Cubo robot variant that injects per-episode thruster failures.
 
-Mask semantics: ``mask[i] == 1`` means thruster ``i`` is healthy, ``mask[i] == 0`` means it is
-stuck-at-zero. The failure is applied post-policy by zeroing the corresponding thruster force just
-before it is written to ``set_external_force_and_torque`` — the policy's commanded action is left
-unmodified so the action-rate / effort reward terms continue to penalise commanded magnitudes.
+Degradation state: each thruster has a ``(scale, offset)`` pair.  The applied thrust is::
 
-The mask is owned by the task (which manages curriculum + per-episode sampling) and pushed into
-the robot via :meth:`set_failure_mask`. The robot stays oblivious to the curriculum schedule.
+    applied[i] = scale[i] * commanded[i] + offset[i]
+
+Healthy:               scale=1, offset=0  → identity
+Binary dead:           scale=0, offset=0  → zero force
+Continuous degradation: scale∈(0,1), offset=0
+Stuck-on:              scale=0, offset∈(0,1]
+
+The state is owned by the task mixin and pushed via :meth:`set_degradation_state`.
+:meth:`set_failure_mask` is kept for backward-compatibility with the binary-mask mixin.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from .cubo import CuboRobot
 
 
 class CuboThrusterFailureRobot(CuboRobot):
-    """Cubo with a per-environment thruster failure mask applied post-policy."""
+    """Cubo with per-environment affine thruster degradation applied post-policy."""
 
     def __init__(
         self,
@@ -48,37 +52,52 @@ class CuboThrusterFailureRobot(CuboRobot):
 
     def initialize_buffers(self, env_ids=None) -> None:
         super().initialize_buffers(env_ids)
-        # 1 = healthy, 0 = failed. Initialise to all-healthy so behaviour matches CuboRobot until
-        # a task explicitly writes a mask.
-        if not hasattr(self, "_thruster_failure_mask"):
-            self._thruster_failure_mask = torch.ones(
-                (self._num_envs, self._robot_cfg.num_thrusters),
-                device=self._device,
-                dtype=torch.float32,
+        num_t = self._robot_cfg.num_thrusters
+        if not hasattr(self, "_thruster_scales"):
+            self._thruster_scales = torch.ones(
+                (self._num_envs, num_t), device=self._device, dtype=torch.float32
+            )
+            self._thruster_offsets = torch.zeros(
+                (self._num_envs, num_t), device=self._device, dtype=torch.float32
             )
 
     @property
     def thruster_failure_mask(self) -> torch.Tensor:
-        """Per-env health mask, shape ``(num_envs, num_thrusters)``. 1 = healthy, 0 = failed."""
-        return self._thruster_failure_mask
+        """Backward-compatible view: returns the scale tensor (1=healthy, <1=degraded)."""
+        return self._thruster_scales
 
-    def set_failure_mask(self, mask: torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
-        """Write a new failure mask for the given envs.
+    def set_degradation_state(
+        self,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        env_ids: torch.Tensor | None = None,
+    ) -> None:
+        """Write scale+offset degradation state for the given envs.
 
         Args:
-            mask: Tensor of shape ``(len(env_ids), num_thrusters)`` with values in ``{0, 1}``.
-            env_ids: Env indices to update. If ``None``, writes to all envs and ``mask`` must have
-                shape ``(num_envs, num_thrusters)``.
+            scales:  Shape ``(len(env_ids), num_thrusters)``. Multiplier applied to commanded thrust.
+            offsets: Shape ``(len(env_ids), num_thrusters)``. Constant offset added after scaling.
+            env_ids: Env indices to update. ``None`` updates all envs.
         """
         if env_ids is None:
-            self._thruster_failure_mask.copy_(mask)
+            self._thruster_scales.copy_(scales)
+            self._thruster_offsets.copy_(offsets)
         else:
-            self._thruster_failure_mask[env_ids] = mask
+            self._thruster_scales[env_ids] = scales
+            self._thruster_offsets[env_ids] = offsets
+
+    def set_failure_mask(self, mask: torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
+        """Backward-compatible binary mask: scale=mask, offset=0."""
+        n = len(env_ids) if env_ids is not None else self._num_envs
+        offsets = torch.zeros((n, self._robot_cfg.num_thrusters), device=self._device)
+        self.set_degradation_state(mask, offsets, env_ids)
 
     def apply_actions(self) -> None:
-        """Zero failed thrusters' forces, then defer to the parent implementation."""
+        """Apply affine degradation then defer to the parent implementation."""
         # _thrust_action shape: (num_envs, num_thrusters, 3); thrust magnitude lives in [..., 2].
-        self._thrust_action[:, :, 2] = self._thrust_action[:, :, 2] * self._thruster_failure_mask
+        self._thrust_action[:, :, 2] = (
+            self._thrust_action[:, :, 2] * self._thruster_scales + self._thruster_offsets
+        )
         super().apply_actions()
         
     def compute_rewards(self):

@@ -70,4 +70,4 @@ tests/
 # Docker history
 .isaac-lab-docker-history
 
-.docker/.history/*
+.docker/.history/*docs/paper_checkpoints.zip

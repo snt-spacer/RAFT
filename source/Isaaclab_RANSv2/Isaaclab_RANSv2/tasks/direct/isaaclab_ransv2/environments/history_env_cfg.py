@@ -22,7 +22,7 @@ class HistoryEnvCfg(AutoEnvGenCfg):
     robot_name = "CuboThrusterFailure"
     task_name = "GoToPositionRMA"
 
-    history_len: int = 64
+    history_len: int = 32
     """Number of (body_vel, action) tokens kept in the history buffer."""
 
     history_feat_dim: int = 12

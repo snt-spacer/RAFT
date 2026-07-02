@@ -30,7 +30,7 @@ class RslRlTransformerEncoderModelCfg(RslRlMLPModelCfg):
     history_obs_group: str = "history"
     """Name of the obs-TensorDict key holding the history buffer."""
 
-    history_len: int = 64
+    history_len: int = 32
     """Number of history tokens (must match the env's ``history_len``)."""
 
     history_feat_dim: int = 12
@@ -107,7 +107,7 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
         clip_param=0.2,
         entropy_coef=0.005,
         num_learning_epochs=5,
-        num_mini_batches=4,
+        num_mini_batches=8,
         learning_rate=3.0e-4,
         schedule="adaptive",
         gamma=0.99,

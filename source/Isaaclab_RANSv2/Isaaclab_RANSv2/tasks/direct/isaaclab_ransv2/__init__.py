@@ -75,3 +75,34 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Isaaclab-RANSv2-Vanilla-Position-v0",
+    entry_point=f"{environments.__name__}.history_env:HistoryEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.history_env_cfg:HistoryEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-vanilla-position_cfg:PPORunnerCfg",
+        "rsl_rl_rnn_gru64_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-gru_cfg:PPORunnerCfgGRU64",
+        "rsl_rl_rnn_gru256_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-gru_cfg:PPORunnerCfgGRU256",
+        "rsl_rl_rnn_lstm64_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-lstm_cfg:PPORunnerCfgLSTM64",
+        "rsl_rl_rnn_lstm256_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-lstm_cfg:PPORunnerCfgLSTM256",
+    },
+)
+
+gym.register(
+    id="Isaaclab-RANSv2-Observer-Position-v0",
+    entry_point=f"{environments.__name__}.observer_env:ObserverEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{environments.__name__}.observer_env_cfg:ObserverEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-observer_cfg:PPORunnerCfg",
+        # E11 AC ablation — baselines with asymmetric critic (critic sees policy + privileged)
+        "rsl_rl_van_ac_cfg_entry_point":       f"{agents.__name__}.rsl_rl_ppo-van-ac_cfg:PPORunnerCfgVANAC",
+        "rsl_rl_rnn_gru64_ac_cfg_entry_point":  f"{agents.__name__}.rsl_rl_ppo-rnn-van-gru-ac_cfg:PPORunnerCfgGRU64AC",
+        "rsl_rl_rnn_gru256_ac_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-gru-ac_cfg:PPORunnerCfgGRU256AC",
+        "rsl_rl_rnn_lstm64_ac_cfg_entry_point":  f"{agents.__name__}.rsl_rl_ppo-rnn-van-lstm-ac_cfg:PPORunnerCfgLSTM64AC",
+        "rsl_rl_rnn_lstm256_ac_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo-rnn-van-lstm-ac_cfg:PPORunnerCfgLSTM256AC",
+        # Mixed-mode GT oracle: actor sees D_gt directly (same env, 3-mode training).
+        "rsl_rl_gt_observer_cfg_entry_point":   f"{agents.__name__}.rsl_rl_ppo-rnn-gt-observer_cfg:PPORunnerCfg",
+    },
+)
