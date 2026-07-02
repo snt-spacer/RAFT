@@ -1,7 +1,7 @@
 # RAFT — Paper Reproduction Guide
 
 Reproduction instructions for the paper
-**"Privileged Critic Training Enables Sensor-Free Thruster Fault Adaptation in End-to-End RL"** (Castan & Olivares-Mendez).
+**"Privileged Critic Training Enables Sensor-Free Thruster Fault Adaptation in End-to-End RL"**
 
 The main method is **RAFT** (Recurrent Asymmetric Fault-Tolerant): a GRU-64 actor
 trained with an asymmetric PPO critic that receives the ground-truth degradation
