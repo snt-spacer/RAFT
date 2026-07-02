@@ -1,258 +1,285 @@
-# Template for Isaac Lab Projects
+# RAFT — Paper Reproduction Guide
 
-Failure of thrusters
-RMA
-Phase 1
-```
-python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-v0 --num_envs 1024 --max_failures 4 --eval_episodes_per_env 2 --headless
-```
+Reproduction instructions for the paper
+**"Privileged Critic Training Enables Sensor-Free Thruster Fault Adaptation in End-to-End RL"** (Castan & Olivares-Mendez).
 
-Phase 2 (loads latest Phase-1 checkpoint)
-```
-python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-v0  --num_envs 1024 --max_failures 4  --phase2_checkpoint logs/rsl_rl/AutoEnvGen_PPO_RMA/<run>/phase2/adapt_final.pt --history_length 50 --backbone conv headless
-```
+The main method is **RAFT** (Recurrent Asymmetric Fault-Tolerant): a GRU-64 actor
+trained with an asymmetric PPO critic that receives the ground-truth degradation
+vector `D_gt` during training only. Actor sees no fault information at any point.
 
-Stricter looser tolerances
-```
-python scripts/rsl_rl/eval_rma.py ... --pos_tol 0.05 --heading_tol 0.02 --success_steps 30
-```
+---
 
-Three-axis evaluation:
-
-Axis 1 — failure count k
-Pin the per-env failure count to a fixed k and sweep k = 0, 1, ..., max_failures. Every env in the batch gets exactly k failed thrusters (uniformly random selection of which ones), held for the whole episode. The new task.force_failure_count(k) knob switches sampling to fixed_cap and overrides the curriculum, so each k pass is clean and comparable.
-
-Axis 2 — Phase 1 vs Phase 2
-
-Phase 1 mode (default): policy reads the true mask via mu. Upper bound — measures whether the privileged-info policy can compensate at all.
-Phase 2 mode (--phase2_checkpoint <path>): the actor's privileged latent z is replaced with phi(history) from a trained adaptation module. Mirrors deployment. Per-env RMAHistoryBuffer is fed (policy_obs, action) and reset on episode termination, exactly as during Phase-2 training. The gap between Phase 1 and Phase 2 success rates tells you what the adaptation module is costing you.
-Axis 3 — success criterion
-A success is one episode where, at some point, the agent stays within both --pos_tol (default 2 cm) and --heading_tol (default 0.01 rad) for at least --success_steps consecutive control steps (default 50, i.e. ~5 s at 10 Hz). This is stricter than "ever touched the goal" and matches the task's existing reset_after_n_steps_in_tolerance notion.
-
-
-# Phase 1: train PPO + privileged encoder on the easier position task
-python scripts/rsl_rl/train.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 4096 --max_iterations 5000 --headless
-
-# Phase 2: train the adaptation module from history
-python scripts/rsl_rl/train_rma_phase2.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --num_iterations 2000 --history_length 50 --backbone conv --headless --phase1_checkpoint
-
-# Eval Phase 1 (true mask via mu)
-python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --max_failures 4 --pos_tol 0.02 --success_steps 50
-
-# Eval Phase 2 (predicted latent from history)
-python scripts/rsl_rl/eval_rma.py --task Isaaclab-RANSv2-RMA-Position-v0 --num_envs 1024 --max_failures 4 --phase2_checkpoint logs/rsl_rl/AutoEnvGen_PPO_RMA_Position/<run>/phase2/adapt_final.pt --history_length 50 --backbone conv
-
-
-# Eval Thruster Failure
-```
-python scripts/rsl_rl/eval_gt_failures.py --task Isaaclab-RANSv2-GroundTruth-Position-v0 env.robot_name=CuboThrusterFailure env.task_name=GoToPositionRMA --num_envs 512 --max_failures 4 --eval_episodes_per_env 5 --pos_tol 0.05 --success_steps 50 --headless --checkpoint 
-```
+## 1. Repository layout
 
 ```
+Isaaclab_RANSv2/
+├── docker/                       # Docker + docker-compose setup
+├── source/Isaaclab_RANSv2/       # Task + environment + agent configs
+│   └── .../tasks/direct/isaaclab_ransv2/
+│       ├── agents/               # RSL-RL PPO config for every variant
+│       ├── environments/         # Env cfgs (Observer, GroundTruth, Vanilla, …)
+│       └── tasks_cfg/            # Reward / termination configs
+├── scripts/
+│   ├── rsl_rl/train.py           # Main training entry point
+│   ├── rsl_rl/eval_gt_failures.py         # Standard reset-time evaluation
+│   ├── rsl_rl/eval_mid_episode_failures.py# Mid-episode failure injection (E4)
+│   └── experiments/              # End-to-end paper experiment scripts (train + eval)
+├── paper_checkpoints/            # Compact checkpoint archive (main methods)
+│   └── RAFT/{seed_42,seed_7,seed_1337}.pt
+└── docs/
+    ├── paper_draft.tex
+    └── paper_checkpoints/        # Full archive (all methods, all seeds)
+```
+
+### Checkpoint locations
+
+- **RAFT** (main method):
+  `paper_checkpoints/RAFT/seed_{42,7,1337}.pt` (3 seeds × 1.4 MB each)
+- **All paper methods** (VAN, VAN-MLP-AC, RAFT, OBS, OBS-MSE, GT-Oracle, RNN
+  ablations, AC ablations, Observer ablations):
+  `docs/paper_checkpoints/<METHOD>/seed_{42,7,1337}.pt`
+
+To regenerate the archive from a fresh training run, use
+[`scripts/archive_paper_checkpoints.sh`](scripts/archive_paper_checkpoints.sh)
+inside the container — it copies the final `model_4999.pt` for every
+experiment × seed listed in the script into the archive layout above.
+
+---
+
+## 2. Build
+
+### 2.1 Prerequisites
+
+- Linux host with an NVIDIA GPU (tested on Ampere/Hopper) + recent NVIDIA driver.
+- Docker + `docker compose` + NVIDIA Container Toolkit.
+- Isaac Sim assets (thruster-actuated robots): downloaded during image build via
+  `ASSETS_URL` defined in `docker/Dockerfile.base`.
+
+The training set-up assumes **Isaac Lab (our fork)** and **rsl_rl (our fork)**
+live next to this repository:
+
+```
+<workspace>/
+├── Isaaclab            # SpaceR-x-DreamLab-RL/Isaaclab fork
+├── rsl_rl              # rsl_rl fork with asymmetric-critic support
+└── Isaaclab_RANSv2     # this repo
+```
+
+Clone them side-by-side before building.
+
+### 2.2 Build and enter the container
+
+From `Isaaclab_RANSv2/`:
+
+```bash
+# Build the image and start a detached container
 docker/container.py start
+
+# Attach an interactive shell (repeat as needed)
 docker/container.py enter
 ```
 
-Teleop and Reaction wheel characterization
-```
-python scripts/teleop_rans_robots/teleop.py --task=Isaaclab-RANSv2-AutoEnvGen-v0 --num_envs=2
-python scripts/teleop_rans_robots/teleop.py --task Isaaclab-RANSv2-AutoEnvGen-v0 --rw_test --rw_torque 1.0 --rw_duration 10.0 --num_envs 2
-```
+Inside the container the repo is bind-mounted at `/root/ws/`. All commands
+below assume you are running from `/root/ws/` in the container.
 
-Training
-```
-python scripts/rsl_rl/train.py --task=Isaaclab-RANSv2-AutoEnvGen-v0 env.robot_name=Cubo env.task_name=GoToPosition --headless
-```
-
-Assets folder structure of `spacer-thedreamlab-assets.zip` (Zip file of Robots renamed to spacer-thedreamlab-assets)
-```
-Robots
-| SpaceR-TheDreamLab
-| | Cubo
-| | FloatingPlatform
-| | Intball2
-| | ...
-| | UniluFP_RL
-```
-
-If you want `Isaaclab` locally on your machine, uncomment the following line from `docker-compose.yaml`
-```
-- type: bind
-    source: ../../Isaaclab/source
-    target: ${DOCKER_ISAACLAB_PATH}/source
-```
-
-Clone [Isaaclab](https://github.com/SpaceR-x-DreamLab-RL/Isaaclab) (our version) outside `Isaaclab_RANSv2` project.
-Should look like:
-```
-your dir
-| Isaaclab (our version)
-| Isaaclab_RANSv2
-```
-
-Install the assets manually. Check inside the `Dockerfile.base` for the latest `ASSETS_URL`.
-```
-wget -O /tmp/spacer-dreamlab-assets.zip "${ASSETS_URL}"
-unzip -d Isaaclab/source/isaaclab_assets/data /tmp/spacer-dreamlab-assets.zip
-rm /tmp/spacer-dreamlab-assets.zip
-```
-
-Recalculate metrics from trajectories
-```
-python scripts/rsl_rl/recalc_metrics.py \
-    --task GoToPose \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_15-57-17_ppo_Pingu_GoToPose_rsl_rl_seed_1 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-04-36_ppo_Pingu_GoToPose_rsl_rl_seed_2 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-15-13_ppo_Pingu_GoToPose_rsl_rl_seed_3 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-25-51_ppo_Pingu_GoToPose_rsl_rl_seed_4 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-36-30_ppo_Pingu_GoToPose_rsl_rl_seed_5
-
-```
-
-Plots
-```
-python scripts/rsl_rl/plot_metrics.py \
-    --task GoToPose \
-    --robot Pingu \
-    --out logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/CustomPlots_2 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_15-57-17_ppo_Pingu_GoToPose_rsl_rl_seed_1 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-04-36_ppo_Pingu_GoToPose_rsl_rl_seed_2 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-15-13_ppo_Pingu_GoToPose_rsl_rl_seed_3 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-25-51_ppo_Pingu_GoToPose_rsl_rl_seed_4 \
-    logs/rsl_rl/AutoEnvGen_PPO_Pingu_Dynamic_Disturbance_Rejection/2026-04-04_19-36-30_ppo_Pingu_GoToPose_rsl_rl_seed_5
-
-```
-
-## Overview
-
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
-
-**Key Features:**
-
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
-
-**Keywords:** extension, template, isaaclab
-
-## Installation
-
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda or uv installation as it simplifies calling Python scripts from the terminal.
-
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
-
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
-
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/Isaaclab_RANSv2
-
-- Verify that the extension is correctly installed by:
-
-    - Listing the available tasks:
-
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu.
-  When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory.
-The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse.
-This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-### Setup as Omniverse Extension (Optional)
-
-We provide an example UI extension that will load upon enabling your extension defined in `source/Isaaclab_RANSv2/Isaaclab_RANSv2/ui_extension_example.py`.
-
-To enable your extension, follow these steps:
-
-1. **Add the search path of this project/repository** to the extension manager:
-    - Navigate to the extension manager using `Window` -> `Extensions`.
-    - Click on the **Hamburger Icon**, then go to `Settings`.
-    - In the `Extension Search Paths`, enter the absolute path to the `source` directory of this project/repository.
-    - If not already present, in the `Extension Search Paths`, enter the path that leads to Isaac Lab's extension directory directory (`IsaacLab/source`)
-    - Click on the **Hamburger Icon**, then click `Refresh`.
-
-2. **Search and enable your extension**:
-    - Find your extension under the `Third Party` category.
-    - Toggle it to enable your extension.
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
+### 2.3 Verify the install
 
 ```bash
-pip install pre-commit
+# List all registered Gym tasks
+${ISAACSIM_ROOT_PATH}/python.sh scripts/list_envs.py | grep RANSv2
 ```
 
-Then you can run pre-commit with:
+You should see the six task IDs used in the paper:
+`Isaaclab-RANSv2-Observer-Position-v0`, `Isaaclab-RANSv2-Vanilla-Position-v0`,
+`Isaaclab-RANSv2-GroundTruth-Position-v0`, and a few others.
+
+---
+
+## 3. Evaluate the released RAFT checkpoints
+
+The fastest reproduction path — no training needed. Skip to §4 if you want to
+retrain from scratch.
+
+### 3.1 Reset-time evaluation (E1, main table)
 
 ```bash
-pre-commit run --all-files
+${ISAACSIM_ROOT_PATH}/python.sh scripts/rsl_rl/eval_gt_failures.py \
+    --task=Isaaclab-RANSv2-Observer-Position-v0 \
+    --agent=rsl_rl_rnn_gru64_ac_cfg_entry_point \
+    --checkpoint=paper_checkpoints/RAFT/seed_42.pt \
+    --num_envs=512 \
+    --max_failures=4 \
+    --eval_episodes_per_env=10 \
+    --pos_tol=0.05 \
+    --success_steps=50 \
+    --headless \
+    --output_dir=docs/results/RAFT_eval/seed_42
 ```
 
-## Troubleshooting
+Sweeps `k = 0..4` mixed-mode failures, writes `eval_gt_failures.json` with the
+success rate and final-position error per `k`. Run all three seeds by looping
+`seed_42.pt → seed_7.pt → seed_1337.pt`.
 
-### Pylance Missing Indexing of Extensions
+The expected numbers (paper Table §V-A):
 
-In some VsCode versions, the indexing of part of the extensions is missing.
-In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
+| k | SR (%) |
+|---|:------:|
+| 0 | 100.0  |
+| 1 | 100.0  |
+| 2 |  98.6  |
+| 3 |  92.5  |
+| 4 |  70.2  |
 
-```json
-{
-    "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/Isaaclab_RANSv2"
-    ]
+### 3.2 Mid-episode failure injection (E4)
+
+```bash
+${ISAACSIM_ROOT_PATH}/python.sh scripts/rsl_rl/eval_mid_episode_failures.py \
+    --task=Isaaclab-RANSv2-Observer-Position-v0 \
+    --agent=rsl_rl_rnn_gru64_ac_cfg_entry_point \
+    --checkpoint=paper_checkpoints/RAFT/seed_42.pt \
+    --num_envs=512 \
+    --eval_episodes_per_env=10 \
+    --max_failures=4 \
+    --inject_step=100 \
+    --headless \
+    --output_dir=docs/results/RAFT_mid_episode/seed_42
+```
+
+### 3.3 Evaluating other methods
+
+Pass a different agent entry point + checkpoint. The mapping between paper
+methods and agent entry points is:
+
+| Paper method   | Checkpoint dir                     | `--agent=`                              |
+|----------------|------------------------------------|-----------------------------------------|
+| **RAFT**       | `paper_checkpoints/RAFT/`          | `rsl_rl_rnn_gru64_ac_cfg_entry_point`   |
+| VAN            | `docs/paper_checkpoints/VAN/`      | `rsl_rl_cfg_entry_point`                |
+| VAN-MLP-AC     | `docs/paper_checkpoints/VAN_MLP_AC/`| `rsl_rl_van_ac_cfg_entry_point`        |
+| Oracle (GT)    | `docs/paper_checkpoints/GT_ORACLE/`| `rsl_rl_gt_observer_cfg_entry_point`    |
+| OBS (λ=0)      | `docs/paper_checkpoints/OBS/`      | `rsl_rl_cfg_entry_point`                |
+| OBS-MSE (λ=1)  | `docs/paper_checkpoints/OBS_MSE/`  | `rsl_rl_cfg_entry_point`                |
+| GRU-256-AC     | `docs/paper_checkpoints/GRU256_AC/`| `rsl_rl_rnn_gru256_ac_cfg_entry_point`  |
+| LSTM-64-AC     | `docs/paper_checkpoints/LSTM64_AC/`| `rsl_rl_rnn_lstm64_ac_cfg_entry_point`  |
+| LSTM-256-AC    | `docs/paper_checkpoints/LSTM256_AC/`| `rsl_rl_rnn_lstm256_ac_cfg_entry_point`|
+
+For the VAN, GRU/LSTM (no-AC) variants, use `Isaaclab-RANSv2-Vanilla-Position-v0`
+as the `--task`. For GT-Oracle, use `Isaaclab-RANSv2-GroundTruth-Position-v0`.
+Every other method uses `Isaaclab-RANSv2-Observer-Position-v0`.
+
+---
+
+## 4. Retrain a method from scratch
+
+RAFT (single seed):
+
+```bash
+${ISAACSIM_ROOT_PATH}/python.sh scripts/rsl_rl/train.py \
+    --task=Isaaclab-RANSv2-Observer-Position-v0 \
+    --agent=rsl_rl_rnn_gru64_ac_cfg_entry_point \
+    --num_envs=4096 \
+    --headless \
+    --seed=42 \
+    agent.experiment_name=VAN_GRU64_AC_GoToPosition
+```
+
+Training uses 5 000 PPO iterations × 24 steps × 4 096 envs
+(≈ 5·10⁸ env steps). On a single A100/H100 this takes ~4–6 hours per seed.
+Checkpoints land in `logs/rsl_rl/VAN_GRU64_AC_GoToPosition/<timestamp>_seed_42/`.
+
+Swap the agent entry-point and task to retrain any other method — see the table
+in §3.3. All paper policies use the same PPO hyperparameters
+(`num_learning_epochs=5`, `num_mini_batches=8`, `learning_rate=3e-4`,
+`entropy_coef=0.005`, `clip_param=0.2`), differing only in actor architecture
+and observation-group wiring.
+
+---
+
+## 5. Reproduce every paper experiment (E1–E6)
+
+Each of the six paper experiments has a self-contained shell driver in
+`scripts/experiments/` that trains all required seeds and runs the evaluation.
+The mapping between paper labels and driver scripts:
+
+| Paper section | Driver script                                          | Purpose |
+|---------------|--------------------------------------------------------|---------|
+| **E1** — main comparison           | `e1_main_comparison.sh`                    | VAN vs Oracle vs OBS/OBS-MSE vs RAFT, `k=0..4` mixed modes |
+| **E2** — severity sweep            | `e3_severity_sweep.sh`                     | DEG scale + STK offset swept at `k=1` |
+| **E3** — multi-failure scalability | `e4_multifailure_scalability.sh` + `e3_raft_eval.sh` | Per-mode `k=0..4` for RAFT / OBS / Oracle |
+| **E4** — mid-episode injection     | `e9_mid_episode_failures.sh` + `e8_raft_mid_episode.sh` | Failures atomically injected at step 100 |
+| **E5** — recurrent-policy ablation | `e10_rnn_ablation.sh`                      | GRU/LSTM 64/256 **without** AC |
+| **E6** — asymmetric-critic ablation| `e11_ac_ablation.sh`                       | VAN-MLP / GRU / LSTM **with** AC |
+
+Run them from the repo root inside the container:
+
+```bash
+bash scripts/experiments/e1_main_comparison.sh
+bash scripts/experiments/e3_severity_sweep.sh
+bash scripts/experiments/e4_multifailure_scalability.sh
+bash scripts/experiments/e3_raft_eval.sh
+bash scripts/experiments/e9_mid_episode_failures.sh
+bash scripts/experiments/e8_raft_mid_episode.sh
+bash scripts/experiments/e10_rnn_ablation.sh
+bash scripts/experiments/e11_ac_ablation.sh
+```
+
+Every driver:
+
+1. Trains all required variants × 3 seeds (skipping ones that already have a
+   checkpoint in `logs/rsl_rl/`).
+2. Runs `eval_gt_failures.py` / `eval_mid_episode_failures.py` /
+   `eval_severity.py` at 512 envs × 10 episodes per condition.
+3. Writes per-seed JSON to `docs/results/<exp_name>/` and prints an
+   aggregated `mean ± std` table to `summary.txt`.
+
+Total wall-time to reproduce the full paper on a single A100/H100:
+~72–96 hours (dominated by 5 000-iter training runs).
+
+### 5.1 Regenerate plots
+
+Once results are in `docs/results/`, generate the paper figures with:
+
+```bash
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e1_main.py
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e3_severity.py
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e4_multifailure.py
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e9_mid_episode.py
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e10_rnn_ablation.py
+${ISAACSIM_ROOT_PATH}/python.sh scripts/experiments/plot_e11_ac_ablation.py
+```
+
+Figures are written to `docs/figures/`.
+
+---
+
+## 6. Task registry cheat-sheet
+
+The three environments used in the paper differ only in what appears in
+`obs["policy"]`, `obs["privileged"]`, and `obs["history"]`:
+
+| Gym ID                                        | `obs["policy"]` | `obs["privileged"]` | `obs["history"]` |
+|-----------------------------------------------|:---------------:|:-------------------:|:----------------:|
+| `Isaaclab-RANSv2-Vanilla-Position-v0`         | 15-dim task obs | —                   | —                |
+| `Isaaclab-RANSv2-Observer-Position-v0`        | 15-dim task obs | 16-dim `D_gt`       | 32×15 buffer     |
+| `Isaaclab-RANSv2-GroundTruth-Position-v0`     | 15+16 (obs ‖ `D_gt`) | —              | —                |
+
+Which slots each variant actually consumes is set by `obs_groups` in the
+matching PPO cfg under `source/.../agents/rsl_rl_ppo-*.py`.
+
+---
+
+## 7. Citing
+
+If you use RAFT or this codebase, please cite:
+
+```bibtex
+@article{castan2026raft,
+  title   = {Privileged Critic Training Enables Sensor-Free Thruster Fault
+             Adaptation in End-to-End RL},
+  author  = {Castan, Ricard M. and Olivares-Mendez, Miguel A.},
+  year    = {2026},
 }
 ```
 
-### Pylance Crash
+## 8. Licence
 
-If you encounter a crash in `pylance`, it is probable that too many files are indexed and you run out of memory.
-A possible solution is to exclude some of omniverse packages that are not used in your project.
-To do so, modify `.vscode/settings.json` and comment out packages under the key `"python.analysis.extraPaths"`
-Some examples of packages that can likely be excluded are:
-
-```json
-"<path-to-isaac-sim>/extscache/omni.anim.*"         // Animation packages
-"<path-to-isaac-sim>/extscache/omni.kit.*"          // Kit UI tools
-"<path-to-isaac-sim>/extscache/omni.graph.*"        // Graph UI tools
-"<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
-...
-```
+BSD-3-Clause (inherited from Isaac Lab). See `LICENSE`.
